@@ -5,7 +5,7 @@
 #include <SPI.h>
 #include <RH_RF69.h>
 
-#define DEBUG 1       // whether or not to display serial console output for general debug messages
+//#define DEBUG 1       // whether or not to display serial console output for general debug messages
 
 /************ Radio Setup ***************/
 // Change to 434.0 or other frequency, must match RX's freq!
@@ -37,7 +37,10 @@
 // Threshold Values
 #define MAX_FOWARD_PWM        180
 #define MAX_REVERSE_PWM       150
+#define MAX_AUTONOMOUS_PWM    100
 #define MIN_TURN_PWM          135
+#define CAUTION_PWM            75
+#define CAUTION_THRESHOLD      16
 #define STOP_THRESHOLD          8   // how far in inches we can be before we need to stop to avoid collision
 #define FORWARD_THRESHOLD     140   // joystick reading that will tell us if we should be moving forward
 #define REVERSE_THRESHOLD     110   // joystick reading that will tell us if we should be moving in reverse
@@ -73,7 +76,7 @@ unsigned int middleDistance = 1000;
 unsigned int leftDistance = 1000;
 
 // TIMER setup
-uint32_t sampleRate = 333;
+uint16_t sampleRate = 56250;  // using prescaler of 256, and wanting interrupt to happen every .3 seconds
 
 
 void setup() 
@@ -160,6 +163,11 @@ void setup()
 void loop() {
   receiveData();
 
+  //Serial.print("Y: ");
+  //Serial.println(data.forward);
+  //Serial.print("X: ");
+  //Serial.println(data.turn);
+
   // no radio contact in the last half second, perform failsafe measure
   if (millis() - lastReceive >= 500) {
     resetData(NEUTRAL);
@@ -178,8 +186,10 @@ void loop() {
   }
 
   if (autonomous) {
-    Serial.println("Autonomous Engaged");
-    
+    #ifdef DEBUG
+      Serial.println("Autonomous Engaged");
+    #endif
+      
     if (detectCollision()) {
       stop();
       
@@ -198,21 +208,24 @@ void loop() {
         digitalWrite(LEFT_REVERSE, HIGH);
       }
       
-      analogWrite(RIGHT_PWM, NEUTRAL);        // autonomous mode goes at half speed
-      analogWrite(LEFT_PWM, NEUTRAL);
+      analogWrite(RIGHT_PWM, MAX_AUTONOMOUS_PWM);
+      analogWrite(LEFT_PWM, MAX_AUTONOMOUS_PWM);
 
-      delay(50);
+      delay(200);
 
       stop();
+
+      delay(400);
     }
-
-    analogWrite(RIGHT_PWM, NEUTRAL);        // autonomous mode goes at half speed
-    analogWrite(LEFT_PWM, NEUTRAL);
-
-    digitalWrite(RIGHT_FORWARD, HIGH);  // set both side forward pins high
-    digitalWrite(LEFT_FORWARD, HIGH);
-    digitalWrite(RIGHT_REVERSE, LOW);  // set both side reverse pins high
-    digitalWrite(LEFT_REVERSE, LOW);
+    else {
+      analogWrite(RIGHT_PWM, MAX_AUTONOMOUS_PWM);
+      analogWrite(LEFT_PWM, MAX_AUTONOMOUS_PWM - 5);
+  
+      digitalWrite(RIGHT_FORWARD, HIGH);  // set both side forward pins high
+      digitalWrite(LEFT_FORWARD, HIGH);
+      digitalWrite(RIGHT_REVERSE, LOW);  // set both side reverse pins high
+      digitalWrite(LEFT_REVERSE, LOW);
+    }
   }
   else {
     // Joystick is pushed up, user intends to move the bot forward
@@ -222,20 +235,25 @@ void loop() {
         stop();
       }
       else {
+        uint8_t LIMIT_PWM = MAX_FOWARD_PWM;
+
+        //if (objectNear()) {
+        //  LIMIT_PWM = CAUTION_PWM;
+        //}
+        
         digitalWrite(RIGHT_FORWARD, HIGH);  
         digitalWrite(LEFT_FORWARD, HIGH);
         digitalWrite(RIGHT_REVERSE, LOW);
         digitalWrite(LEFT_REVERSE, LOW);
   
-        uint8_t forwardVal = map(data.forward, FORWARD_THRESHOLD, 255, 0, MAX_FOWARD_PWM);
-        //uint8_t forwardVal = MAX_FOWARD_PWM;
+        uint8_t forwardVal = map(data.forward, FORWARD_THRESHOLD, 255, 0, LIMIT_PWM);
   
-        // turn left
+        // turn left (data.turn is between 128 and 255)
         if (data.turn >= LEFT_THRESHOLD) {
           analogWrite(LEFT_PWM, map(forwardVal - (data.turn - NEUTRAL), NEUTRAL, forwardVal, MIN_TURN_PWM, forwardVal));
           analogWrite(RIGHT_PWM, forwardVal);
         }
-        // turn right
+        // turn right (data.turn is between 0 and 128)
         else if (data.turn <= RIGHT_THRESHOLD) {
           analogWrite(LEFT_PWM, forwardVal);
           analogWrite(RIGHT_PWM, map(forwardVal  - (NEUTRAL - data.turn), forwardVal , NEUTRAL, forwardVal, MIN_TURN_PWM));
@@ -334,6 +352,15 @@ void loop() {
 
 bool detectCollision() {
   if ((rightDistance <= STOP_THRESHOLD && rightDistance != 0) || (middleDistance <= STOP_THRESHOLD && middleDistance != 0) || (leftDistance <= STOP_THRESHOLD && leftDistance != 0)) {
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+bool objectNear() {
+  if ((rightDistance <= CAUTION_THRESHOLD && rightDistance != 0) || (middleDistance <= CAUTION_THRESHOLD && middleDistance != 0) || (leftDistance <= CAUTION_THRESHOLD && leftDistance != 0)) {
     return true;
   }
   else {
@@ -447,9 +474,9 @@ void TC4_Handler (void) {
  // Set TC4 mode as match frequency
  TC4->COUNT16.CTRLA.reg |= TC_CTRLA_WAVEGEN_MFRQ;
  //set prescaler and enable TC4
- TC4->COUNT16.CTRLA.reg |= TC_CTRLA_PRESCALER_DIV1024 | TC_CTRLA_ENABLE;
+ TC4->COUNT16.CTRLA.reg |= TC_CTRLA_PRESCALER_DIV256 | TC_CTRLA_ENABLE;
  //set TC4 timer counter based off of the system clock and the user defined sample rate or waveform
- TC4->COUNT16.CC[0].reg = (uint16_t) (SystemCoreClock / sampleRate - 1);
+ TC4->COUNT16.CC[0].reg = sampleRate;
  while (tcIsSyncing());
  
  // Configure interrupt request
