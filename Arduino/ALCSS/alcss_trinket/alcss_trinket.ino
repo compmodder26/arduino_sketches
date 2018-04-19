@@ -5,7 +5,7 @@
 #include <EEPROM.h>
 
 #define TRIGGER_PIN 4 // pin connected to the trigger pin of the ultrasonic sensor
-#define ECHO_PIN    3 // pin connected to the echo pin of the ultrasonic sensor
+#define ECHO_PIN    1 // pin connected to the echo pin of the ultrasonic sensor
 #define PIXEL_PIN   0 // Digital IO pin connected to the NeoPixels.
 #define BUTTON_PIN  2 // pin connected to the button that will store the desired distance in inches to trigger the lights
 
